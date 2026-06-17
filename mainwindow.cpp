@@ -139,7 +139,25 @@ void MainWindow::on_pushButton_start_clicked() {
     // Получаем состояние галочки "удалять исходные файлы"
     bool deleteSource = ui->checkBox->isChecked();
 
+    // --- Определение режима обработки конфликтов ---
+    bool overwriteExisting = false;    // Режим перезаписи
+    bool autoRename = false;           // Режим автоматического переименования
+
+    if (ui->radioButton->isChecked()) {
+        overwriteExisting = true;
+        autoRename = false;
+    } else if (ui->radioButton_2->isChecked()) {
+        overwriteExisting = false;
+        autoRename = true;
+    } else {
+        // Если по какой-то причине ни одна не выбрана, выбираем autoRename по умолчанию
+        overwriteExisting = false;
+        autoRename = true;
+    }
+
+    // ------------------------
     // --- Обработка файлов ---
+    // ------------------------
     int processedCount = 0;
     QStringList errors;
 
@@ -147,6 +165,31 @@ void MainWindow::on_pushButton_start_clicked() {
         const QString &fileName = files[i];
         QString inputFilePath = inputDir.filePath(fileName);
         QString outputFilePath = outputDir.filePath(fileName);
+
+        // Обработка конфликта имён
+        QFile outputFile(outputFilePath);
+        bool fileExists = outputFile.exists();
+
+        if (fileExists && !overwriteExisting && autoRename) {
+            // Режим автоматического переименования
+            QFileInfo fileInfo(fileName);
+            QString baseName = fileInfo.baseName();        // Имя без расширения
+            QString suffix = fileInfo.suffix();            // Расширение
+            QString newFileName;
+            int counter = 2;
+
+            do {
+                newFileName = baseName + "_" + QString::number(counter);
+                if (!suffix.isEmpty()) {
+                    newFileName += "." + suffix;
+                }
+                outputFilePath = outputDir.filePath(newFileName);
+                outputFile.setFileName(outputFilePath);
+                counter++;
+            } while (outputFile.exists());
+        }
+        // Если true, просто перезаписываем существующий файл
+
 
         QFile inputFile(inputFilePath);
         if (!inputFile.open(QIODevice::ReadOnly)) {
@@ -172,7 +215,7 @@ void MainWindow::on_pushButton_start_clicked() {
             modifiedData.append(modifiedByte);
         }
 
-        QFile outputFile(outputFilePath);
+
         if (!outputFile.open(QIODevice::WriteOnly)) {
             errors << fileName + " (не удалось создать выходной файл)";
             continue;
@@ -185,7 +228,7 @@ void MainWindow::on_pushButton_start_clicked() {
             errors << fileName + " (неполная запись)";
             continue;
         }
-
+        // Удаление исходного файла (если галочка установлена)
         if (deleteSource) {
             if (!inputFile.remove()) {
                 errors << fileName + " (не удалось удалить исходный файл)";
@@ -194,11 +237,28 @@ void MainWindow::on_pushButton_start_clicked() {
 
         processedCount++;
     }
+
     // Показываем результат
     QString message = "Обработано файлов: " + QString::number(processedCount);
     if (!errors.isEmpty()) {
         message += "\nОшибки при обработке: " + errors.join(", ");
     }
+
+    // Добавляем информацию о режиме обработки конфликтов
+    if (overwriteExisting) {
+        message += "\nРежим: перезапись существующих файлов";
+    } else if (autoRename) {
+        message += "\nРежим: автоматическое переименование (_2, _3, ...)";
+    }
+
+    if (deleteSource) {
+        message += "\nИсходные файлы удалены";
+    }
+
+    if (!errors.isEmpty()) {
+        message += "\n\nОшибки при обработке:\n" + errors.join("\n");
+    }
+
     QMessageBox::information(this, "Готово", message);
 }
 

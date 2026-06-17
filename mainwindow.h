@@ -9,6 +9,9 @@
 #include <QFileDialog>
 #include <QRegularExpression>
 #include <QByteArray>
+#include <QTimer>
+#include <QDateTime>
+#include <QMap>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -27,12 +30,37 @@ public:
 
 private slots:
     void on_pushButton_start_clicked();
+    void on_pushButton_stop_clicked();
+    void on_radioButton_3_toggled(bool checked);
+    void on_radioButton_4_toggled(bool checked);
+    void processFiles();  // Основная функция обработки
+    void processRealtime(); // Слот для таймера
     void on_pushButton_input_clicked();
     void on_pushButton_output_clicked();
-    // bool validatePaths(QString &errorMessage);
 
 
 private:
     Ui::MainWindow *ui;
+    // Таймер для режима реального времени
+    QTimer *timer;
+
+    // Флаг работы в реальном времени
+    bool isRealtimeMode;
+
+    // Флаг остановки процесса
+    bool stopRequested;
+
+    // Хранилище для информации о прерванных файлах
+    // Ключ: путь к файлу, Значение: смещение (позиция) для возобновления
+    QMap<QString, qint64> pausedFiles;
+
+    // Текущая обрабатываемая директория (для возобновления)
+    QString currentInputPath;
+    QString currentOutputPath;
+    QString currentMask;
+    QByteArray currentKeyBytes;
+    bool currentDeleteSource;
+    bool currentOverwriteExisting;
+    bool currentAutoRename;
 };
 #endif // MAINWINDOW_H

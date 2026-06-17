@@ -8,6 +8,27 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     connect(ui->pushButton_start, &QPushButton::clicked,
             this, &MainWindow::on_pushButton_start_clicked);
+    // Инициализация таймера
+    timer = new QTimer(this);
+    timer->setSingleShot(false); // Будет срабатывать периодически
+
+    // Подключаем таймер к слоту обработки в реальном времени
+    connect(timer, &QTimer::timeout, this, &MainWindow::processRealtime);
+
+    // Инициализация флагов
+    isRealtimeMode = false;
+    stopRequested = false;
+
+    // По умолчанию скрываем элементы для режима реального времени
+    ui->label_8->setVisible(false);
+    ui->timeEdit->setVisible(false);
+
+    // Устанавливаем минимальное время 1 секунда
+    ui->timeEdit->setMinimumTime(QTime(0, 0, 1));
+    ui->timeEdit->setTime(QTime(0, 0, 5)); // По умолчанию 5 секунд
+
+    // Устанавливаем radioButton_4 (разовый режим) по умолчанию
+    ui->radioButton_4->setChecked(true);
 }
 
 MainWindow::~MainWindow()
@@ -40,6 +61,7 @@ QByteArray hexStringToByteArray(const QString &hexString)
     return result;
 }
 
+// Кнопка "Старт"
 void MainWindow::on_pushButton_start_clicked() {
     // 1. Получаем пути из полей ввода
     QString inputPath = ui->lineEdit_2->text().trimmed();
@@ -155,6 +177,27 @@ void MainWindow::on_pushButton_start_clicked() {
         autoRename = true;
     }
 
+    // Сбрасываем флаг остановки
+    stopRequested = false;
+
+    if (isRealtimeMode) {
+        // Режим реального времени
+        int seconds = ui->timeEdit->time().second();
+        if (seconds < 1) seconds = 1; // Минимум 1 секунда
+
+        timer->start(seconds * 1000); // QTimer работает в миллисекундах
+
+        // Первый запуск сразу
+        processRealtime();
+
+        QMessageBox::information(this, "Режим реального времени",
+                                 "Запущен режим реального времени.\n"
+                                 "Интервал опроса: " + QString::number(seconds) + " секунд.");
+    } else {
+        // Разовый режим
+        processFiles();
+    }
+
     // ------------------------
     // --- Обработка файлов ---
     // ------------------------
@@ -262,6 +305,278 @@ void MainWindow::on_pushButton_start_clicked() {
     QMessageBox::information(this, "Готово", message);
 }
 
+// Кнопка "Стоп"
+void MainWindow::on_pushButton_stop_clicked()
+{
+    // Устанавливаем флаг остановки
+    stopRequested = true;
+
+    // Если таймер активен, останавливаем его
+    if (timer->isActive()) {
+        timer->stop();
+    }
+
+    // Блокируем кнопку запуска, чтобы предотвратить повторный запуск
+    ui->pushButton_start->setEnabled(true);
+
+    QMessageBox::information(this, "Остановка",
+                             "Процесс остановлен.\n"
+                             "Нажмите 'Запуск' для возобновления обработки.");
+}
+
+void MainWindow::processFiles()
+{
+    // --- Проверка путей и маски (как было раньше) ---
+    QString inputPath = ui->lineEdit_2->text().trimmed();
+    QString outputPath = ui->lineEdit_3->text().trimmed();
+    QString mask = ui->lineEdit->text().trimmed();
+
+    if (mask.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Пожалуйста, введите маску файлов.");
+        return;
+    }
+
+    if (inputPath.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Пожалуйста, укажите путь к входным файлам.");
+        return;
+    }
+
+    if (outputPath.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Пожалуйста, укажите путь для сохранения результатов.");
+        return;
+    }
+
+    QDir inputDir(inputPath);
+    if (!inputDir.exists()) {
+        QMessageBox::warning(this, "Ошибка", "Входная директория не существует:\n" + inputPath);
+        return;
+    }
+
+    QDir outputDir(outputPath);
+    if (!outputDir.exists()) {
+        if (!outputDir.mkpath(".")) {
+            QMessageBox::warning(this, "Ошибка", "Невозможно создать выходную директорию:\n" + outputPath);
+            return;
+        }
+    }
+
+    if (QDir::cleanPath(inputPath) == QDir::cleanPath(outputPath)) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Входная и выходная директории совпадают.\n"
+                             "Укажите разные папки, чтобы не перезаписывать исходные файлы.");
+        return;
+    }
+
+    // --- Проверка ключа ---
+    QString hexKey = ui->lineEdit_5->text().trimmed();
+    QString cleanKey = hexKey;
+    cleanKey.remove(' ');
+
+    if (cleanKey.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Пожалуйста, введите 8-байтный ключ в hex-формате.");
+        return;
+    }
+
+    if (cleanKey.length() != 16) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Ключ должен содержать ровно 16 hex-символов (8 байт).\n"
+                             "Пример: 1234567890ABCDEF\n"
+                             "Текущая длина: " + QString::number(cleanKey.length()) + " символов");
+        return;
+    }
+
+    QRegularExpression hexRegex("^[0-9A-Fa-f]+$");
+    if (!hexRegex.match(cleanKey).hasMatch()) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Ключ содержит недопустимые символы.\n"
+                             "Разрешены только цифры 0-9 и буквы A-F/a-f.");
+        return;
+    }
+
+    QByteArray keyBytes = hexStringToByteArray(cleanKey);
+    if (keyBytes.size() != 8) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Не удалось корректно преобразовать ключ.\n"
+                             "Убедитесь, что введено ровно 16 hex-символов.");
+        return;
+    }
+
+    // --- Определение режима обработки конфликтов ---
+    bool overwriteExisting = false;
+    bool autoRename = false;
+
+    if (ui->radioButton->isChecked()) {
+        overwriteExisting = true;
+        autoRename = false;
+    } else if (ui->radioButton_2->isChecked()) {
+        overwriteExisting = false;
+        autoRename = true;
+    } else {
+        overwriteExisting = false;
+        autoRename = true;
+    }
+
+    // Сохраняем параметры для возможного возобновления
+    currentInputPath = inputPath;
+    currentOutputPath = outputPath;
+    currentMask = mask;
+    currentKeyBytes = keyBytes;
+    currentDeleteSource = ui->checkBox->isChecked();
+    currentOverwriteExisting = overwriteExisting;
+    currentAutoRename = autoRename;
+
+    // --- Получение списка файлов ---
+    QStringList files = inputDir.entryList(QStringList() << mask, QDir::Files);
+
+    if (files.isEmpty()) {
+        QMessageBox::information(this, "Информация",
+                                 "Файлы по маске '" + mask + "' не найдены в папке:\n" + inputPath);
+        return;
+    }
+
+    // --- Обработка файлов ---
+    bool deleteSource = ui->checkBox->isChecked();
+    int processedCount = 0;
+    QStringList errors;
+
+    for (int i = 0; i < files.size(); ++i) {
+        // Проверяем, не был ли запрошен стоп
+        if (stopRequested) {
+            // Сохраняем прогресс для возобновления
+            // В данном случае мы не можем возобновить с середины файла,
+            // но можем запомнить последний обработанный файл
+            QMessageBox::information(this, "Остановка",
+                                     "Обработка прервана на файле: " + files[i]);
+            return;
+        }
+
+        const QString &fileName = files[i];
+        QString inputFilePath = inputDir.filePath(fileName);
+        QString outputFilePath = outputDir.filePath(fileName);
+
+        // --- Обработка конфликта имён ---
+        QFile outputFile(outputFilePath);
+        bool fileExists = outputFile.exists();
+
+        if (fileExists && !overwriteExisting && autoRename) {
+            QFileInfo fileInfo(fileName);
+            QString baseName = fileInfo.baseName();
+            QString suffix = fileInfo.suffix();
+            QString newFileName;
+            int counter = 2;
+
+            do {
+                newFileName = baseName + "_" + QString::number(counter);
+                if (!suffix.isEmpty()) {
+                    newFileName += "." + suffix;
+                }
+                outputFilePath = outputDir.filePath(newFileName);
+                outputFile.setFileName(outputFilePath);
+                counter++;
+            } while (outputFile.exists());
+        }
+
+        // --- Чтение и обработка файла ---
+        QFile inputFile(inputFilePath);
+        if (!inputFile.open(QIODevice::ReadOnly)) {
+            errors << fileName + " (не удалось открыть для чтения)";
+            continue;
+        }
+
+        QByteArray fileData = inputFile.readAll();
+        inputFile.close();
+
+        if (fileData.isEmpty()) {
+            errors << fileName + " (файл пуст)";
+            continue;
+        }
+
+        // Применяем XOR
+        QByteArray modifiedData;
+        modifiedData.reserve(fileData.size());
+
+        for (int byteIndex = 0; byteIndex < fileData.size(); ++byteIndex) {
+            // Проверяем стоп каждые 1024 байта для отзывчивости
+            if (byteIndex % 1024 == 0 && stopRequested) {
+                // Сохраняем позицию для возобновления
+                pausedFiles[inputFilePath] = byteIndex;
+                QMessageBox::information(this, "Остановка",
+                                         "Обработка файла '" + fileName +
+                                             "' прервана на байте " + QString::number(byteIndex));
+                return;
+            }
+
+            int keyIndex = byteIndex % 8;
+            char keyByte = keyBytes[keyIndex];
+            char modifiedByte = fileData[byteIndex] ^ keyByte;
+            modifiedData.append(modifiedByte);
+        }
+
+        // --- Запись выходного файла ---
+        if (!outputFile.open(QIODevice::WriteOnly)) {
+            errors << fileName + " (не удалось создать выходной файл)";
+            continue;
+        }
+
+        qint64 bytesWritten = outputFile.write(modifiedData);
+        outputFile.close();
+
+        if (bytesWritten != modifiedData.size()) {
+            errors << fileName + " (неполная запись)";
+            continue;
+        }
+
+        // --- Удаление исходного файла ---
+        if (deleteSource) {
+            if (!inputFile.remove()) {
+                errors << fileName + " (не удалось удалить исходный файл)";
+            }
+        }
+
+        processedCount++;
+
+        // Если файл успешно обработан, удаляем его из списка приостановленных
+        pausedFiles.remove(inputFilePath);
+    }
+
+    // --- Показываем результат ---
+    QString message = "Обработано файлов: " + QString::number(processedCount);
+    message += "\nВходная папка: " + inputPath;
+    message += "\nВыходная папка: " + outputPath;
+    message += "\nИспользован ключ: " + cleanKey;
+
+    if (overwriteExisting) {
+        message += "\nРежим: перезапись существующих файлов";
+    } else if (autoRename) {
+        message += "\nРежим: автоматическое переименование (_2, _3, ...)";
+    }
+
+    if (deleteSource) {
+        message += "\nИсходные файлы удалены";
+    }
+
+    if (!errors.isEmpty()) {
+        message += "\n\nОшибки при обработке:\n" + errors.join("\n");
+    }
+
+    QMessageBox::information(this, "Готово", message);
+
+    // Сбрасываем флаг остановки
+    stopRequested = false;
+}
+
+void MainWindow::processRealtime()
+{
+    // Проверяем, не был ли запрошен стоп
+    if (stopRequested) {
+        timer->stop();
+        return;
+    }
+
+    // Запускаем обработку
+    processFiles();
+}
+
 void MainWindow::on_pushButton_input_clicked()
 {
     QString dir = QFileDialog::getExistingDirectory(this,
@@ -279,6 +594,31 @@ void MainWindow::on_pushButton_output_clicked()
                                                     ui->lineEdit_3->text());
     if (!dir.isEmpty()) {
         ui->lineEdit_3->setText(dir);
+    }
+}
+
+void MainWindow::on_radioButton_3_toggled(bool checked)
+{
+    if (checked) {
+        // Режим реального времени
+        isRealtimeMode = true;
+        ui->label_8->setVisible(true);
+        ui->timeEdit->setVisible(true);
+    }
+}
+
+void MainWindow::on_radioButton_4_toggled(bool checked)
+{
+    if (checked) {
+        // Разовый режим
+        isRealtimeMode = false;
+        ui->label_8->setVisible(false);
+        ui->timeEdit->setVisible(false);
+
+        // Останавливаем таймер, если он был запущен
+        if (timer->isActive()) {
+            timer->stop();
+        }
     }
 }
 

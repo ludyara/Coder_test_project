@@ -11,6 +11,7 @@ qt_add_executable(test
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
+    radioButtons.cpp
 )
 
 target_link_libraries(test

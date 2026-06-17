@@ -7,7 +7,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
     connect(ui->pushButton_start, &QPushButton::clicked,
-            this, &MainWindow::onProcessButtonClicked);
+            this, &MainWindow::on_pushButton_start_clicked);
 }
 
 MainWindow::~MainWindow()
@@ -15,46 +15,23 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-void MainWindow::onProcessButtonClicked()
-{
-    // Получаем маску из line edit
-    QString mask = ui->lineEdit->text().trimmed();
-
-    // Проверяем, что маска не пустая
-    if (mask.isEmpty()) {
-        QMessageBox::warning(this, "Ошибка", "Введите маску файлов");
-        return;
-    }
-
-    // Получаем список файлов по маске в текущей директории
-    QDir currentDir = QDir::current();
-    QStringList files = currentDir.entryList(QStringList() << mask, QDir::Files);
-
-    // Проверяем, есть ли файлы
-    if (files.isEmpty()) {
-        QMessageBox::information(this, "Информация",
-                                 "Файлы по маске '" + mask + "' не найдены в текущей папке");
-        return;
-    }
-
-    // Обрабатываем каждый файл
-    int processedCount = 0;
-    QStringList errors;
-
+void MainWindow::extracted(QDir &inputDir, QDir &outputDir, QStringList &files,
+                           int &processedCount, QStringList &errors) {
     for (const QString &fileName : files) {
-        QString filePath = currentDir.filePath(fileName);
+        QString inputFilePath = inputDir.filePath(fileName);
+        QString outputFilePath = outputDir.filePath(fileName);
 
-        // Открываем файл для чтения
-        QFile file(filePath);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        // Открываем входной файл для чтения
+        QFile inputFile(inputFilePath);
+        if (!inputFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
             errors << fileName;
             continue;
         }
 
-        // Читаем все содержимое
-        QTextStream in(&file);
+        // Читаем содержимое
+        QTextStream in(&inputFile);
         QString content = in.readAll();
-        file.close();
+        inputFile.close();
 
         // Меняем 1 на 0 и 0 на 1
         QString modifiedContent;
@@ -69,19 +46,89 @@ void MainWindow::onProcessButtonClicked()
             }
         }
 
-        // Открываем файл для записи
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        // Открываем выходной файл для записи
+        QFile outputFile(outputFilePath);
+        if (!outputFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
             errors << fileName;
             continue;
         }
 
-        // Записываем измененное содержимое
-        QTextStream out(&file);
+        // Записываем изменённое содержимое
+        QTextStream out(&outputFile);
         out << modifiedContent;
-        file.close();
+        outputFile.close();
 
         processedCount++;
     }
+}
+void MainWindow::on_pushButton_start_clicked() {
+    // 1. Получаем пути из полей ввода
+    QString inputPath = ui->lineEdit_2->text().trimmed();
+    QString outputPath = ui->lineEdit_3->text().trimmed();
+    QString mask = ui->lineEdit->text().trimmed();
+
+    // 2. Проверяем, что все поля заполнены
+    if (mask.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Пожалуйста, введите маску файлов.");
+        return;
+    }
+
+    if (inputPath.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Пожалуйста, укажите путь к входным файлам.");
+        return;
+    }
+
+    if (outputPath.isEmpty()) {
+        QMessageBox::warning(
+            this, "Ошибка", "Пожалуйста, укажите путь для сохранения результатов.");
+        return;
+    }
+
+    // 3. Проверяем существование входной директории
+    QDir inputDir(inputPath);
+    if (!inputDir.exists()) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Входная директория не существует:\n" + inputPath);
+        return;
+    }
+
+    // 4. Проверяем или создаём выходную директорию
+    QDir outputDir(outputPath);
+    if (!outputDir.exists()) {
+        // Пробуем создать папку (включая все родительские)
+        if (!outputDir.mkpath(".")) {
+            QMessageBox::warning(this, "Ошибка",
+                                 "Невозможно создать выходную директорию:\n" +
+                                     outputPath);
+            return;
+        }
+    }
+
+    // 5. Проверяем, что входная и выходная папки не совпадают
+    if (QDir::cleanPath(inputPath) == QDir::cleanPath(outputPath)) {
+        QMessageBox::warning(
+            this, "Ошибка",
+            "Входная и выходная директории совпадают.\n"
+            "Укажите разные папки, чтобы не перезаписывать исходные файлы.");
+        return;
+    }
+
+    // 6. Получаем список файлов во входной директории по маске
+    QStringList files = inputDir.entryList(QStringList() << mask, QDir::Files);
+
+    if (files.isEmpty()) {
+        QMessageBox::information(this, "Информация",
+                                 "Файлы по маске '" + mask +
+                                     "' не найдены в папке:\n" + inputPath);
+        return;
+    }
+
+    // Обрабатываем каждый файл
+    int processedCount = 0;
+    QStringList errors;
+
+    extracted(inputDir, outputDir, files, processedCount, errors);
 
     // Показываем результат
     QString message = "Обработано файлов: " + QString::number(processedCount);
@@ -89,4 +136,24 @@ void MainWindow::onProcessButtonClicked()
         message += "\nОшибки при обработке: " + errors.join(", ");
     }
     QMessageBox::information(this, "Готово", message);
+}
+
+void MainWindow::on_pushButton_input_clicked()
+{
+    QString dir = QFileDialog::getExistingDirectory(this,
+                                                    "Выберите входную папку",
+                                                    ui->lineEdit_2->text());
+    if (!dir.isEmpty()) {
+        ui->lineEdit_2->setText(dir);
+    }
+}
+
+void MainWindow::on_pushButton_output_clicked()
+{
+    QString dir = QFileDialog::getExistingDirectory(this,
+                                                    "Выберите папку для сохранения",
+                                                    ui->lineEdit_3->text());
+    if (!dir.isEmpty()) {
+        ui->lineEdit_3->setText(dir);
+    }
 }

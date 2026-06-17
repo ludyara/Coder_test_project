@@ -15,57 +15,39 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
-void MainWindow::extracted(QDir &inputDir, QDir &outputDir, QStringList &files,
-                           int &processedCount, QStringList &errors) {
-    for (const QString &fileName : files) {
-        QString inputFilePath = inputDir.filePath(fileName);
-        QString outputFilePath = outputDir.filePath(fileName);
 
-        // Открываем входной файл для чтения
-        QFile inputFile(inputFilePath);
-        if (!inputFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            errors << fileName;
-            continue;
-        }
+// Вспомогательный метод для преобразования hex-строки в QByteArray
+QByteArray hexStringToByteArray(const QString &hexString)
+{
+    QByteArray result;
+    QString cleanHex = hexString.trimmed().toUpper();
 
-        // Читаем содержимое
-        QTextStream in(&inputFile);
-        QString content = in.readAll();
-        inputFile.close();
+    // Убираем возможные пробелы
+    cleanHex.remove(' ');
 
-        // Меняем 1 на 0 и 0 на 1
-        QString modifiedContent;
-        for (int i = 0; i < content.size(); ++i) {
-            QChar ch = content[i];
-            if (ch == '1') {
-                modifiedContent.append('0');
-            } else if (ch == '0') {
-                modifiedContent.append('1');
-            } else {
-                modifiedContent.append(ch);
+    // Проходим по строке попарно
+    for (int i = 0; i < cleanHex.length(); i += 2) {
+        if (i + 1 < cleanHex.length()) {
+            QString byteStr = cleanHex.mid(i, 2);
+            bool ok;
+            int byteValue = byteStr.toInt(&ok, 16);
+            if (ok) {
+                result.append(static_cast<char>(byteValue));
             }
         }
-
-        // Открываем выходной файл для записи
-        QFile outputFile(outputFilePath);
-        if (!outputFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            errors << fileName;
-            continue;
-        }
-
-        // Записываем изменённое содержимое
-        QTextStream out(&outputFile);
-        out << modifiedContent;
-        outputFile.close();
-
-        processedCount++;
     }
+
+    return result;
 }
+
 void MainWindow::on_pushButton_start_clicked() {
     // 1. Получаем пути из полей ввода
     QString inputPath = ui->lineEdit_2->text().trimmed();
     QString outputPath = ui->lineEdit_3->text().trimmed();
     QString mask = ui->lineEdit->text().trimmed();
+    QString hexKey = ui->lineEdit_5->text().trimmed();
+    QString cleanKey = hexKey;
+    cleanKey.remove(' '); // Убираем возможные пробелы для проверки
 
     // 2. Проверяем, что все поля заполнены
     if (mask.isEmpty()) {
@@ -85,11 +67,25 @@ void MainWindow::on_pushButton_start_clicked() {
         return;
     }
 
+    if (cleanKey.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Пожалуйста, введите 8-байтный ключ в hex-формате.");
+        return;
+    }
+
     // 3. Проверяем существование входной директории
     QDir inputDir(inputPath);
     if (!inputDir.exists()) {
         QMessageBox::warning(this, "Ошибка",
                              "Входная директория не существует:\n" + inputPath);
+        return;
+    }
+
+    // Проверяем, что длина ровно 8 байт
+    if (cleanKey.length() != 16) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Ключ должен содержать ровно 16 hex-символов\n"
+                             "Пример: 1234567890ABCDEF\n"
+                             "Текущая длина: " + QString::number(cleanKey.length()) + " символов");
         return;
     }
 
@@ -104,6 +100,14 @@ void MainWindow::on_pushButton_start_clicked() {
             return;
         }
     }
+    // Проверяем, что все символы - hex-цифры
+    QRegularExpression hexRegex("^[0-9A-Fa-f]+$");
+    if (!hexRegex.match(cleanKey).hasMatch()) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Ключ содержит недопустимые символы.\n"
+                             "Разрешены только цифры 0-9 и буквы A-F/a-f.");
+        return;
+    }
 
     // 5. Проверяем, что входная и выходная папки не совпадают
     if (QDir::cleanPath(inputPath) == QDir::cleanPath(outputPath)) {
@@ -111,6 +115,15 @@ void MainWindow::on_pushButton_start_clicked() {
             this, "Ошибка",
             "Входная и выходная директории совпадают.\n"
             "Укажите разные папки, чтобы не перезаписывать исходные файлы.");
+        return;
+    }
+    // Преобразуем hex-строку в массив байт
+    QByteArray keyBytes = hexStringToByteArray(cleanKey);
+    // Проверяем, что получилось ровно 8 байт
+    if (keyBytes.size() != 8) {
+        QMessageBox::warning(this, "Ошибка",
+                             "Не удалось корректно преобразовать ключ.\n"
+                             "Убедитесь, что введено ровно 16 hex-символов.");
         return;
     }
 
@@ -123,13 +136,64 @@ void MainWindow::on_pushButton_start_clicked() {
                                      "' не найдены в папке:\n" + inputPath);
         return;
     }
+    // Получаем состояние галочки "удалять исходные файлы"
+    bool deleteSource = ui->checkBox->isChecked();
 
-    // Обрабатываем каждый файл
+    // --- Обработка файлов ---
     int processedCount = 0;
     QStringList errors;
 
-    extracted(inputDir, outputDir, files, processedCount, errors);
+    for (int i = 0; i < files.size(); ++i) {
+        const QString &fileName = files[i];
+        QString inputFilePath = inputDir.filePath(fileName);
+        QString outputFilePath = outputDir.filePath(fileName);
 
+        QFile inputFile(inputFilePath);
+        if (!inputFile.open(QIODevice::ReadOnly)) {
+            errors << fileName + " (не удалось открыть для чтения)";
+            continue;
+        }
+
+        QByteArray fileData = inputFile.readAll();
+        inputFile.close();
+
+        if (fileData.isEmpty()) {
+            errors << fileName + " (файл пуст)";
+            continue;
+        }
+
+        QByteArray modifiedData;
+        modifiedData.reserve(fileData.size());
+
+        for (int byteIndex = 0; byteIndex < fileData.size(); ++byteIndex) {
+            int keyIndex = byteIndex % 8;
+            char keyByte = keyBytes[keyIndex];
+            char modifiedByte = fileData[byteIndex] ^ keyByte;
+            modifiedData.append(modifiedByte);
+        }
+
+        QFile outputFile(outputFilePath);
+        if (!outputFile.open(QIODevice::WriteOnly)) {
+            errors << fileName + " (не удалось создать выходной файл)";
+            continue;
+        }
+
+        qint64 bytesWritten = outputFile.write(modifiedData);
+        outputFile.close();
+
+        if (bytesWritten != modifiedData.size()) {
+            errors << fileName + " (неполная запись)";
+            continue;
+        }
+
+        if (deleteSource) {
+            if (!inputFile.remove()) {
+                errors << fileName + " (не удалось удалить исходный файл)";
+            }
+        }
+
+        processedCount++;
+    }
     // Показываем результат
     QString message = "Обработано файлов: " + QString::number(processedCount);
     if (!errors.isEmpty()) {
@@ -157,3 +221,5 @@ void MainWindow::on_pushButton_output_clicked()
         ui->lineEdit_3->setText(dir);
     }
 }
+
+

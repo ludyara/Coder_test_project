@@ -7,6 +7,8 @@
 #include <QTextStream>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QRegularExpression>
+#include <QByteArray>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -24,8 +26,6 @@ public:
 
 
 private slots:
-    void extracted(QDir &inputDir, QDir &outputDir, QStringList &files,
-                   int &processedCount, QStringList &errors);
     void on_pushButton_start_clicked();
     void on_pushButton_input_clicked();
     void on_pushButton_output_clicked();

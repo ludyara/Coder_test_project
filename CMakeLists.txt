@@ -11,6 +11,7 @@ qt_add_executable(test
     mainwindow.cpp
     mainwindow.h
     mainwindow.ui
+    processFiles.cpp
     radioButtons.cpp
 )
 

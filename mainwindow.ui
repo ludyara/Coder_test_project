@@ -266,6 +266,9 @@
     <property name="text">
      <string>перезаписать</string>
     </property>
+    <attribute name="buttonGroup">
+     <string notr="true">buttonGroup</string>
+    </attribute>
    </widget>
    <widget class="QLabel" name="label_5">
     <property name="geometry">
@@ -302,6 +305,9 @@
     <property name="text">
      <string>модифицировать со счётчиком</string>
     </property>
+    <attribute name="buttonGroup">
+     <string notr="true">buttonGroup</string>
+    </attribute>
    </widget>
    <widget class="QLabel" name="label_6">
     <property name="geometry">
@@ -338,6 +344,9 @@
     <property name="text">
      <string>в режиме реального времени (по таймеру)</string>
     </property>
+    <attribute name="buttonGroup">
+     <string notr="true">buttonGroup_2</string>
+    </attribute>
    </widget>
    <widget class="QRadioButton" name="radioButton_4">
     <property name="geometry">
@@ -356,6 +365,9 @@
     <property name="text">
      <string>разовый запуск</string>
     </property>
+    <attribute name="buttonGroup">
+     <string notr="true">buttonGroup_2</string>
+    </attribute>
    </widget>
    <widget class="QLineEdit" name="lineEdit_5">
     <property name="geometry">
@@ -462,4 +474,8 @@
  </widget>
  <resources/>
  <connections/>
+ <buttongroups>
+  <buttongroup name="buttonGroup"/>
+  <buttongroup name="buttonGroup_2"/>
+ </buttongroups>
 </ui>

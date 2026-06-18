@@ -6,14 +6,14 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    connect(ui->pushButton_start, &QPushButton::clicked,
-            this, &MainWindow::on_pushButton_start_clicked);
+    // connect(ui->pushButton_start, &QPushButton::clicked,
+    //         this, &MainWindow::on_pushButton_start_clicked);
     // Инициализация таймера
     timer = new QTimer(this);
     timer->setSingleShot(false); // Будет срабатывать периодически
 
     // Подключаем таймер к слоту обработки в реальном времени
-    connect(timer, &QTimer::timeout, this, &MainWindow::processRealtime);
+    // connect(timer, &QTimer::timeout, this, &MainWindow::processRealtime);
 
     // Инициализация флагов
     isRealtimeMode = false;
@@ -30,10 +30,46 @@ MainWindow::MainWindow(QWidget *parent)
     // Устанавливаем radioButton по умолчанию
     ui->radioButton->setChecked(true);
     ui->radioButton_4->setChecked(true);
+
+    // --- Инициализация таймеров ---
+    timer = new QTimer(this);
+    timer->setSingleShot(false);
+    connect(timer, &QTimer::timeout, this, &MainWindow::processRealtime);
+
+    // Таймер для обновления прогресса в реальном времени
+    progressTimer = new QTimer(this);
+    progressTimer->setSingleShot(false);
+    progressTimer->setInterval(1000); // Обновляем каждый заданный интервал
+    connect(progressTimer, &QTimer::timeout, this, &MainWindow::updateRealtimeProgress);
+
+    // Инициализация переменных
+    isRealtimeMode = false;
+    stopRequested = false;
+    totalFiles = 0;
+    currentFileIndex = 0;
+    remainingSeconds = 0;
+
+    // Настройка progressBar
+    ui->progressBar->setRange(0, 100);
+    ui->progressBar->setValue(0);
+
+    // Инициализация статуса
+    ui->label_status->setText("Готов к работе");
+    ui->label_status_2->setText("Ожидание запуска");
+
+    // Потом надо будет удалить (Инициализация переменных)
+    ui->lineEdit->setText("test.txt");
+    ui->lineEdit_2->setText("D:\\Projects\\Qt\\test\\Temp\\in");
+    ui->lineEdit_3->setText("D:\\Projects\\Qt\\test\\Temp\\out");
+    ui->lineEdit_5->setText("0000000000000001");
 }
 
 MainWindow::~MainWindow()
 {
+    // Останавливаем таймеры
+    if (timer->isActive()) timer->stop();
+    if (progressTimer->isActive()) progressTimer->stop();
+
     delete ui;
 }
 
@@ -154,162 +190,34 @@ void MainWindow::on_pushButton_start_clicked() {
     // 6. Получаем список файлов во входной директории по маске
     QStringList files = inputDir.entryList(QStringList() << mask, QDir::Files);
 
-    if (files.isEmpty()) {
-        QMessageBox::information(this, "Информация",
-                                 "Файлы по маске '" + mask +
-                                     "' не найдены в папке:\n" + inputPath);
-        return;
-    }
-
-
     // Блокируем все элементы управления (если всё гуд)
     lockControls(true);
-
-    // Получаем состояние галочки "удалять исходные файлы"
-    bool deleteSource = ui->checkBox->isChecked();
-
-    // --- Определение режима обработки конфликтов ---
-    bool overwriteExisting = false;    // Режим перезаписи
-    bool autoRename = false;           // Режим автоматического переименования
-
-    if (ui->radioButton->isChecked()) {
-        overwriteExisting = true;
-        autoRename = false;
-    } else if (ui->radioButton_2->isChecked()) {
-        overwriteExisting = false;
-        autoRename = true;
-    } else {
-        // Если по какой-то причине ни одна не выбрана, выбираем autoRename по умолчанию
-        overwriteExisting = false;
-        autoRename = true;
-    }
 
     // Сбрасываем флаг остановки
     stopRequested = false;
 
-    if (isRealtimeMode) {
+    // Сбрасываем прогресс
+    ui->progressBar->setValue(0);
+    ui->label_status->setText("Подготовка к обработке...");
+
+    if (ui->radioButton_3->isChecked()) {
         // Режим реального времени
-        int seconds = ui->timeEdit->time().second();
+        QTime time = ui->timeEdit->time();
+        int seconds = time.hour() * 3600 + time.minute() * 60 + time.second();
         if (seconds < 1) seconds = 1; // Минимум 1 секунда
 
         timer->start(seconds * 1000); // QTimer работает в миллисекундах
 
+        // Запускаем таймер прогресса
+        remainingSeconds = seconds;
+        progressTimer->start(1000);
+
         // Первый запуск сразу
         processRealtime();
-
-        QMessageBox::information(this, "Режим реального времени",
-                                 "Запущен режим реального времени.\n"
-                                 "Интервал опроса: " + QString::number(seconds) + " секунд.");
     } else {
         // Разовый режим
         processFiles();
     }
-
-    // ------------------------
-    // --- Обработка файлов ---
-    // ------------------------
-    int processedCount = 0;
-    QStringList errors;
-
-    for (int i = 0; i < files.size(); ++i) {
-        const QString &fileName = files[i];
-        QString inputFilePath = inputDir.filePath(fileName);
-        QString outputFilePath = outputDir.filePath(fileName);
-
-        // Обработка конфликта имён
-        QFile outputFile(outputFilePath);
-        bool fileExists = outputFile.exists();
-
-        if (fileExists && !overwriteExisting && autoRename) {
-            // Режим автоматического переименования
-            QFileInfo fileInfo(fileName);
-            QString baseName = fileInfo.baseName();        // Имя без расширения
-            QString suffix = fileInfo.suffix();            // Расширение
-            QString newFileName;
-            int counter = 2;
-
-            do {
-                newFileName = baseName + "_" + QString::number(counter);
-                if (!suffix.isEmpty()) {
-                    newFileName += "." + suffix;
-                }
-                outputFilePath = outputDir.filePath(newFileName);
-                outputFile.setFileName(outputFilePath);
-                counter++;
-            } while (outputFile.exists());
-        }
-        // Если true, просто перезаписываем существующий файл
-
-
-        QFile inputFile(inputFilePath);
-        if (!inputFile.open(QIODevice::ReadOnly)) {
-            errors << fileName + " (не удалось открыть для чтения)";
-            continue;
-        }
-
-        QByteArray fileData = inputFile.readAll();
-        inputFile.close();
-
-        if (fileData.isEmpty()) {
-            errors << fileName + " (файл пуст)";
-            continue;
-        }
-
-        QByteArray modifiedData;
-        modifiedData.reserve(fileData.size());
-
-        for (int byteIndex = 0; byteIndex < fileData.size(); ++byteIndex) {
-            int keyIndex = byteIndex % 8;
-            char keyByte = keyBytes[keyIndex];
-            char modifiedByte = fileData[byteIndex] ^ keyByte;
-            modifiedData.append(modifiedByte);
-        }
-
-
-        if (!outputFile.open(QIODevice::WriteOnly)) {
-            errors << fileName + " (не удалось создать выходной файл)";
-            continue;
-        }
-
-        qint64 bytesWritten = outputFile.write(modifiedData);
-        outputFile.close();
-
-        if (bytesWritten != modifiedData.size()) {
-            errors << fileName + " (неполная запись)";
-            continue;
-        }
-        // Удаление исходного файла (если галочка установлена)
-        if (deleteSource) {
-            if (!inputFile.remove()) {
-                errors << fileName + " (не удалось удалить исходный файл)";
-            }
-        }
-
-        processedCount++;
-    }
-
-    // // Показываем результат
-    // QString message = "Обработано файлов: " + QString::number(processedCount);
-    // if (!errors.isEmpty()) {
-    //     message += "\nОшибки при обработке: " + errors.join(", ");
-    // }
-
-    // // Добавляем информацию о режиме обработки конфликтов
-    // if (overwriteExisting) {
-    //     message += "\nРежим: перезапись существующих файлов";
-    // } else if (autoRename) {
-    //     message += "\nРежим: автоматическое переименование (_2, _3, ...)";
-    // }
-
-    // if (deleteSource) {
-    //     message += "\nИсходные файлы удалены";
-    // }
-
-    // if (!errors.isEmpty()) {
-    //     message += "\n\nОшибки при обработке:\n" + errors.join("\n");
-    // }
-
-    // QMessageBox::information(this, "Готово", message);
 }
 
 // Кнопка "Стоп"
@@ -323,15 +231,26 @@ void MainWindow::on_pushButton_stop_clicked()
         timer->stop();
     }
 
+    // Останавливаем все таймеры
+    if (timer->isActive()) {
+        timer->stop();
+    }
+    if (progressTimer->isActive()) {
+        progressTimer->stop();
+    }
+
     // Блокируем кнопку запуска, чтобы предотвратить повторный запуск
     ui->pushButton_start->setEnabled(true);
 
     // Разблокируем остальные элементы управления
     lockControls(false);
 
+    ui->label_status->setText("Остановлено пользователем");
+
     QMessageBox::information(this, "Остановка",
                              "Процесс остановлен.\n"
                              "Нажмите 'Запуск' для возобновления обработки.");
+    ui->progressBar->setValue(0);
 }
 
 
@@ -340,11 +259,35 @@ void MainWindow::processRealtime()
     // Проверяем, не был ли запрошен стоп
     if (stopRequested) {
         timer->stop();
+        progressTimer->stop();
+        lockControls(false);
+
+        ui->label_status->setText("Остановлено пользователем");
+        ui->progressBar->setValue(0);
         return;
     }
 
+    // Обновляем статус перед обработкой
+    ui->label_status->setText("Запуск опроса файлов...");
+
     // Запускаем обработку
     processFiles();
+
+    // Сбрасываем прогресс-бар для режима реального времени
+    if (!stopRequested) {
+        // Сбрасываем прогресс-бар, так как он использовался для файлов
+        ui->progressBar->setValue(0);
+
+        // Обновляем статус
+        int seconds = ui->timeEdit->time().second();
+        if (seconds < 1) seconds = 1;
+        ui->label_status->setText("Ожидание следующего опроса: " +
+                                  QString::number(seconds) + " сек.");
+
+        // Запускаем таймер прогресса для обратного отсчёта
+        remainingSeconds = seconds;
+        progressTimer->start(1000);
+    }
 }
 
 void MainWindow::on_pushButton_input_clicked()
@@ -387,10 +330,27 @@ void MainWindow::lockControls(bool locked)
     // Блокируем/разблокируем timeEdit (если видим)
     ui->timeEdit->setDisabled(locked);
 
-    // Блокируем/разблокируем кнопку "Стоп" (она должна работать всегда)
-    // Не блокируем pushButton_stop!
-
     // Блокируем/разблокируем кнопку "Запуск"
     ui->pushButton_start->setDisabled(locked);
 }
 
+void MainWindow::updateRealtimeProgress()
+{
+    if (remainingSeconds > 0) {
+        remainingSeconds--;
+
+        // Обновляем прогресс-бар
+        int totalSeconds = ui->timeEdit->time().second();
+        if (totalSeconds < 1) totalSeconds = 1;
+
+        int progress = ((totalSeconds - remainingSeconds) * 100) / totalSeconds;
+        ui->progressBar->setValue(progress);
+
+        // Обновляем статус
+        ui->label_status->setText("Следующий опрос через: " +
+                                  QString::number(remainingSeconds) + " сек.");
+    } else {
+        // Если время вышло, останавливаем таймер прогресса
+        progressTimer->stop();
+    }
+}

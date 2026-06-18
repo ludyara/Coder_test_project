@@ -2,6 +2,7 @@
 #include "ui_mainwindow.h"
 
 QByteArray hexStringToByteArray(const QString &hexString);
+// void MainWindow::lockControls(bool locked);
 
 void MainWindow::processFiles()
 {
@@ -44,10 +45,19 @@ void MainWindow::processFiles()
     QStringList files = inputDir.entryList(QStringList() << mask, QDir::Files);
 
     if (files.isEmpty()) {
-        QMessageBox::information(this, "Информация",
-                                 "Файлы по маске '" + mask + "' не найдены в папке:\n" + inputPath);
+        ui->label_status->setText("Файлы по маске '" + mask + "' не найдены в папке:\n" + inputPath);
+        ui->progressBar->setValue(0);
+        lockControls(false);
         return;
     }
+
+    // Инициализация прогресса
+    totalFiles = files.size();
+    currentFileIndex = 0;
+
+    // Настраиваем progressBar для разового режима
+    ui->progressBar->setRange(0, totalFiles);
+    ui->progressBar->setValue(0);
 
     // Обработка файлов
     bool deleteSource = ui->checkBox->isChecked();
@@ -60,20 +70,21 @@ void MainWindow::processFiles()
             // Сохраняем прогресс для возобновления
             // В данном случае мы не можем возобновить с середины файла,
             // но можем запомнить последний обработанный файл
-            QMessageBox::information(this, "Остановка",
-                                     "Обработка прервана на файле: " + files[i]);
+            ui->label_status->setText("Обработка прервана на файле: " + files[i]);
             return;
         }
+        ui->label_status->setText("Обработка файла: " + files[i]);
 
         const QString &fileName = files[i];
         QString inputFilePath = inputDir.filePath(fileName);
         QString outputFilePath = outputDir.filePath(fileName);
 
-        // --- Обработка конфликта имён ---
+        // Обработка конфликта имён
         QFile outputFile(outputFilePath);
         bool fileExists = outputFile.exists();
 
         if (fileExists && !overwriteExisting && autoRename) {
+            ui->label_status->setText("Поиск свободного имени для: " + fileName);
             QFileInfo fileInfo(fileName);
             QString baseName = fileInfo.baseName();
             QString suffix = fileInfo.suffix();
@@ -89,11 +100,15 @@ void MainWindow::processFiles()
                 outputFile.setFileName(outputFilePath);
                 counter++;
             } while (outputFile.exists());
+            ui->label_status->setText("Файл переименован в: " + newFileName);
         }
 
-        // --- Чтение и обработка файла ---
+
+        // Чтение и обработка файла
+        ui->label_status->setText("Чтение файла: " + fileName);
         QFile inputFile(inputFilePath);
         if (!inputFile.open(QIODevice::ReadOnly)) {
+            ui->label_status->setText("Ошибка чтения: " + fileName);
             errors << fileName + " (не удалось открыть для чтения)";
             continue;
         }
@@ -107,6 +122,7 @@ void MainWindow::processFiles()
         }
 
         // Применяем XOR
+        ui->label_status->setText("Применение XOR к файлу: " + fileName);
         QByteArray modifiedData;
         modifiedData.reserve(fileData.size());
 
@@ -127,8 +143,10 @@ void MainWindow::processFiles()
             modifiedData.append(modifiedByte);
         }
 
-        // --- Запись выходного файла ---
+        // Запись выходного файла
+        ui->label_status->setText("Запись результата: " + fileName);
         if (!outputFile.open(QIODevice::WriteOnly)) {
+            ui->label_status->setText("Ошибка записи: " + fileName);
             errors << fileName + " (не удалось создать выходной файл)";
             continue;
         }
@@ -141,40 +159,35 @@ void MainWindow::processFiles()
             continue;
         }
 
-        // --- Удаление исходного файла ---
+        // Удаление исходного файла
         if (deleteSource) {
+            ui->label_status->setText("Удаление исходного файла: " + fileName);
             if (!inputFile.remove()) {
                 errors << fileName + " (не удалось удалить исходный файл)";
             }
         }
 
         processedCount++;
+        currentFileIndex = i + 1;
+
+        // --- Обновляем прогресс ---
+        ui->progressBar->setValue(currentFileIndex);
 
         // Если файл успешно обработан, удаляем его из списка приостановленных
         pausedFiles.remove(inputFilePath);
     }
 
-    // --- Показываем результат ---
-    QString message = "Обработано файлов: " + QString::number(processedCount);
-    // message += "\nВходная папка: " + inputPath;
-    // message += "\nВыходная папка: " + outputPath;
-    // message += "\nИспользован ключ: " + cleanKey;
+    // Показываем результат
+	if (errors.isEmpty()) {
+        ui->label_status_2->setText("Обработано файлов: " + QString::number(processedCount) + " из " + QString::number(totalFiles));
+	} else {
+		ui->label_status_2->setText("Обработано файлов: " + QString::number(processedCount) + "\n\nОшибки при обработке:\n" + errors.join("\n"));
+	}
 
-    if (overwriteExisting) {
-        message += "\nРежим: перезапись существующих файлов";
-    } else if (autoRename) {
-        message += "\nРежим: автоматическое переименование (_2, _3, ...)";
-    }
+    ui->progressBar->setValue(totalFiles);
 
-    if (deleteSource) {
-        message += "\nИсходные файлы удалены";
-    }
-
-    if (!errors.isEmpty()) {
-        message += "\n\nОшибки при обработке:\n" + errors.join("\n");
-    }
-
-    QMessageBox::information(this, "Готово", message);
+    // Разблокировка элементов
+    lockControls(false);
 
     // Сбрасываем флаг остановки
     stopRequested = false;

@@ -104,7 +104,7 @@
      <rect>
       <x>50</x>
       <y>590</y>
-      <width>271</width>
+      <width>641</width>
       <height>21</height>
      </rect>
     </property>
@@ -414,6 +414,12 @@
       <height>22</height>
      </rect>
     </property>
+    <property name="currentSection">
+     <enum>QDateTimeEdit::Section::HourSection</enum>
+    </property>
+    <property name="displayFormat">
+     <string>HH:mm:ss</string>
+    </property>
    </widget>
    <widget class="QLabel" name="label_8">
     <property name="geometry">
@@ -459,6 +465,24 @@
      <string>...</string>
     </property>
    </widget>
+   <widget class="QLabel" name="label_status_2">
+    <property name="geometry">
+     <rect>
+      <x>50</x>
+      <y>660</y>
+      <width>271</width>
+      <height>21</height>
+     </rect>
+    </property>
+    <property name="font">
+     <font>
+      <pointsize>12</pointsize>
+     </font>
+    </property>
+    <property name="text">
+     <string>TextLabel</string>
+    </property>
+   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
@@ -475,7 +499,7 @@
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="buttonGroup"/>
   <buttongroup name="buttonGroup_2"/>
+  <buttongroup name="buttonGroup"/>
  </buttongroups>
 </ui>

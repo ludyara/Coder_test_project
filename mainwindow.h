@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <QDateTime>
 #include <QMap>
+#include <QProgressBar>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -62,5 +63,14 @@ private:
     bool currentDeleteSource;
     bool currentOverwriteExisting;
     bool currentAutoRename;
+
+    // Для прогресса
+    int totalFiles;           // Общее количество файлов для обработки
+    int currentFileIndex;     // Индекс текущего обрабатываемого файла
+    QTimer *progressTimer;    // Таймер для обновления прогресса в реальном времени
+    int remainingSeconds;     // Оставшиеся секунды до следующего опроса
+
+    void lockControls(bool locked);
+    void updateRealtimeProgress();
 };
 #endif // MAINWINDOW_H

@@ -4,6 +4,7 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
+    , isProcessing(false)
 {
     ui->setupUi(this);
     // connect(ui->pushButton_start, &QPushButton::clicked,
@@ -34,7 +35,7 @@ MainWindow::MainWindow(QWidget *parent)
     // --- Инициализация таймеров ---
     timer = new QTimer(this);
     timer->setSingleShot(false);
-    connect(timer, &QTimer::timeout, this, &MainWindow::processRealtime);
+    // connect(timer, &QTimer::timeout, this, &MainWindow::processRealtime);
 
     // Таймер для обновления прогресса в реальном времени
     progressTimer = new QTimer(this);
@@ -57,6 +58,10 @@ MainWindow::MainWindow(QWidget *parent)
     ui->label_status->setText("Готов к работе");
     ui->label_status_2->setText("Ожидание запуска");
 
+    // Инициализация рабочего потока
+    workerThread = nullptr;
+    worker = nullptr;
+    
     // Потом надо будет удалить (Инициализация переменных)
     ui->lineEdit->setText("test.txt");
     ui->lineEdit_2->setText("D:\\Projects\\Qt\\test\\Temp\\in");
@@ -66,6 +71,7 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+	cleanupThread();
     // Останавливаем таймеры
     if (timer->isActive()) timer->stop();
     if (progressTimer->isActive()) progressTimer->stop();
@@ -75,7 +81,7 @@ MainWindow::~MainWindow()
 
 
 // Вспомогательный метод для преобразования hex-строки в QByteArray
-QByteArray hexStringToByteArray(const QString &hexString)
+QByteArray hexStringToByteArray(QString &hexString)
 {
     QByteArray result;
     QString cleanHex = hexString.trimmed().toUpper();
@@ -98,6 +104,22 @@ QByteArray hexStringToByteArray(const QString &hexString)
     return result;
 }
 
+void MainWindow::cleanupThread()
+{
+    if (workerThread) {
+        if (workerThread->isRunning()) {
+            workerThread->quit();
+            workerThread->wait(5000);
+        }
+        delete workerThread;
+        workerThread = nullptr;
+    }
+    if (worker) {
+        delete worker;
+        worker = nullptr;
+    }
+}
+
 // Кнопка "Старт"
 void MainWindow::on_pushButton_start_clicked() {
 
@@ -108,7 +130,7 @@ void MainWindow::on_pushButton_start_clicked() {
     QString hexKey = ui->lineEdit_5->text().trimmed();
     QString cleanKey = hexKey;
     cleanKey.remove(' '); // Убираем возможные пробелы для проверки
-
+	
     // 2. Проверяем, что все поля заполнены
     if (mask.isEmpty()) {
         QMessageBox::warning(this, "Ошибка", "Пожалуйста, введите маску файлов.");
@@ -177,7 +199,7 @@ void MainWindow::on_pushButton_start_clicked() {
             "Укажите разные папки, чтобы не перезаписывать исходные файлы.");
         return;
     }
-    // Преобразуем hex-строку в массив байт
+    // // Преобразуем hex-строку в массив байт
     QByteArray keyBytes = hexStringToByteArray(cleanKey);
     // Проверяем, что получилось ровно 8 байт
     if (keyBytes.size() != 8) {
@@ -193,13 +215,71 @@ void MainWindow::on_pushButton_start_clicked() {
     // Блокируем все элементы управления (если всё гуд)
     lockControls(true);
 
+	// Определение режима обработки конфликтов
+    bool overwriteExisting = false;
+    bool autoRename = false;
+
+    if (ui->radioButton->isChecked()) {
+        overwriteExisting = true;
+        autoRename = false;
+    } else if (ui->radioButton_2->isChecked()) {
+        overwriteExisting = false;
+        autoRename = true;
+    } else {
+        overwriteExisting = false;
+        autoRename = true;
+    }
+
+    // Сохраняем параметры для возможного возобновления
+    currentInputPath = inputPath;
+    currentOutputPath = outputPath;
+    currentMask = mask;
+    currentKeyBytes = keyBytes;
+    currentDeleteSource = ui->checkBox->isChecked();
+    currentOverwriteExisting = overwriteExisting;
+    currentAutoRename = autoRename;
+
     // Сбрасываем флаг остановки
     stopRequested = false;
+	isProcessing = true;
 
     // Сбрасываем прогресс
     ui->progressBar->setValue(0);
     ui->label_status->setText("Подготовка к обработке...");
 
+    // Очищаем старый поток, если есть
+    cleanupThread();
+    
+    // Создаём новый поток
+    workerThread = new QThread(this);
+    worker = new WorkerThread();
+    worker->moveToThread(workerThread);
+    
+    // Подключаем сигналы
+    connect(workerThread, &QThread::started, worker, &WorkerThread::process);
+    connect(workerThread, &QThread::finished, workerThread, &QThread::deleteLater);
+    
+    connect(worker, &WorkerThread::progressUpdated, this, &MainWindow::onProgressUpdated);
+    connect(worker, &WorkerThread::statusUpdated, this, &MainWindow::onStatusUpdated);
+    connect(worker, &WorkerThread::fileProgressUpdated, this, &MainWindow::onFileProgressUpdated);
+    connect(worker, &WorkerThread::finished, this, &MainWindow::onProcessingFinished);
+    connect(worker, &WorkerThread::errorOccurred, this, &MainWindow::onErrorOccurred);
+    
+    // Передаём параметры в рабочий поток
+    worker->setParameters(
+        currentInputPath,
+        currentOutputPath,
+        currentMask,
+        currentKeyBytes,
+        currentDeleteSource,
+        currentOverwriteExisting,
+        currentAutoRename,
+        pausedFiles
+    );
+    
+    // Запускаем поток
+    workerThread->start();
+	
     if (ui->radioButton_3->isChecked()) {
         // Режим реального времени
         QTime time = ui->timeEdit->time();
@@ -212,11 +292,11 @@ void MainWindow::on_pushButton_start_clicked() {
         remainingSeconds = seconds;
         progressTimer->start(1000);
 
-        // Первый запуск сразу
-        processRealtime();
-    } else {
-        // Разовый режим
-        processFiles();
+    //     // Первый запуск сразу
+    //     processRealtime();
+    // } else {
+    //     // Разовый режим
+    //     processFiles();
     }
 }
 
@@ -227,15 +307,15 @@ void MainWindow::on_pushButton_stop_clicked()
     stopRequested = true;
 
     // Если таймер активен, останавливаем его
-    if (timer->isActive()) {
-        timer->stop();
+    if (worker) {
+        worker->stop();
     }
 
     // Останавливаем все таймеры
-    if (timer->isActive()) {
+    if (timer && timer->isActive()) {
         timer->stop();
     }
-    if (progressTimer->isActive()) {
+    if (progressTimer && progressTimer->isActive()) {
         progressTimer->stop();
     }
 
@@ -251,44 +331,64 @@ void MainWindow::on_pushButton_stop_clicked()
                              "Процесс остановлен.\n"
                              "Нажмите 'Запуск' для возобновления обработки.");
     ui->progressBar->setValue(0);
+    // Не разблокируем сразу, дадим время на остановку
+    QTimer::singleShot(1000, this, [this]() {
+        if (!isProcessing) {
+            lockControls(false);
+        }
+    });
 }
 
-
-void MainWindow::processRealtime()
+void MainWindow::onProgressUpdated(int current, int total)
 {
-    // Проверяем, не был ли запрошен стоп
-    if (stopRequested) {
-        timer->stop();
-        progressTimer->stop();
-        lockControls(false);
-
-        ui->label_status->setText("Остановлено пользователем");
-        ui->progressBar->setValue(0);
-        return;
-    }
-
-    // Обновляем статус перед обработкой
-    ui->label_status->setText("Запуск опроса файлов...");
-
-    // Запускаем обработку
-    processFiles();
-
-    // Сбрасываем прогресс-бар для режима реального времени
-    if (!stopRequested) {
-        // Сбрасываем прогресс-бар, так как он использовался для файлов
-        ui->progressBar->setValue(0);
-
-        // Обновляем статус
-        int seconds = ui->timeEdit->time().second();
-        if (seconds < 1) seconds = 1;
-        ui->label_status->setText("Ожидание следующего опроса: " +
-                                  QString::number(seconds) + " сек.");
-
-        // Запускаем таймер прогресса для обратного отсчёта
-        remainingSeconds = seconds;
-        progressTimer->start(1000);
-    }
+    currentFileIndex = current;
+    totalFiles = total;
+    ui->progressBar->setMaximum(total);
+    ui->progressBar->setValue(current);
+    ui->label_status_2->setText("Файл " + QString::number(current) + 
+                                " из " + QString::number(total));
 }
+
+void MainWindow::onStatusUpdated(const QString &status)
+{
+    ui->label_status->setText(status);
+}
+
+// void MainWindow::processRealtime()
+// {
+//     // Проверяем, не был ли запрошен стоп
+//     if (stopRequested) {
+//         timer->stop();
+//         progressTimer->stop();
+//         lockControls(false);
+
+//         ui->label_status->setText("Остановлено пользователем");
+//         ui->progressBar->setValue(0);
+//         return;
+//     }
+
+//     // Обновляем статус перед обработкой
+//     ui->label_status->setText("Запуск опроса файлов...");
+
+//     // Запускаем обработку
+//     processFiles();
+
+//     // Сбрасываем прогресс-бар для режима реального времени
+//     if (!stopRequested) {
+//         // Сбрасываем прогресс-бар, так как он использовался для файлов
+//         ui->progressBar->setValue(0);
+
+//         // Обновляем статус
+//         int seconds = ui->timeEdit->time().second();
+//         if (seconds < 1) seconds = 1;
+//         ui->label_status->setText("Ожидание следующего опроса: " +
+//                                   QString::number(seconds) + " сек.");
+
+//         // Запускаем таймер прогресса для обратного отсчёта
+//         remainingSeconds = seconds;
+//         progressTimer->start(1000);
+//     }
+// }
 
 void MainWindow::on_pushButton_input_clicked()
 {
@@ -352,5 +452,69 @@ void MainWindow::updateRealtimeProgress()
     } else {
         // Если время вышло, останавливаем таймер прогресса
         progressTimer->stop();
+    }
+}
+
+void MainWindow::onFileProgressUpdated(int percent)
+{
+    // Если не в реальном времени, показываем прогресс файла
+    if (!isRealtimeMode) {
+        // Можно добавить дополнительный индикатор или просто обновлять статус
+    }
+}
+
+void MainWindow::onProcessingFinished(int processedCount, int errorCount, const QStringList &errors)
+{
+    isProcessing = false;
+    
+    ui->label_status->setText("Обработка завершена");
+    ui->label_status_2->setText("Обработано: " + QString::number(processedCount) + 
+                               " файлов" + (errorCount > 0 ? 
+                               " (ошибок: " + QString::number(errorCount) + ")" : ""));
+    ui->progressBar->setValue(processedCount);
+    
+    if (!errors.isEmpty()) {
+        QMessageBox::warning(this, "Ошибки", 
+                            "Ошибки при обработке:\n" + errors.join("\n"));
+    }
+    
+    lockControls(false);
+    
+    // Если режим реального времени, обновляем статус ожидания
+    if (isRealtimeMode && !stopRequested) {
+        QTime time = ui->timeEdit->time();
+        int seconds = time.hour() * 3600 + time.minute() * 60 + time.second();
+        if (seconds < 1) seconds = 1;
+        ui->label_status->setText("Ожидание следующего опроса: " + 
+                                 QString::number(seconds) + " сек.");
+    }
+}
+
+void MainWindow::onErrorOccurred(const QString &error)
+{
+    QMessageBox::critical(this, "Ошибка", error);
+    isProcessing = false;
+    lockControls(false);
+}
+
+// Обработка закрытия окна
+void MainWindow::closeEvent(QCloseEvent *event)
+{
+    if (isProcessing) {
+        QMessageBox::StandardButton reply;
+        reply = QMessageBox::question(this, "Подтверждение", 
+                                     "Идёт обработка. Прервать и закрыть?",
+                                     QMessageBox::Yes | QMessageBox::No);
+        if (reply == QMessageBox::Yes) {
+            if (worker) {
+                worker->stop();
+                cleanupThread();
+            }
+            event->accept();
+        } else {
+            event->ignore();
+        }
+    } else {
+        event->accept();
     }
 }

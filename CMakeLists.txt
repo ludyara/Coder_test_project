@@ -13,6 +13,8 @@ qt_add_executable(test
     mainwindow.ui
     processFiles.cpp
     radioButtons.cpp
+    workerthread.cpp
+    workerthread.h
 )
 
 target_link_libraries(test

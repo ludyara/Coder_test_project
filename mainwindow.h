@@ -48,25 +48,31 @@ private slots:
     void onProcessingFinished(int processedCount, int errorCount, const QStringList &errors);
     void onErrorOccurred(const QString &error);
     void closeEvent(QCloseEvent *event);
-    void updateRealtimeProgress();
-    // QByteArray hexStringToByteArray(QString &hexString);
+    QByteArray hexStringToByteArray(QString &hexString);
 
+    // Слоты для режима реального времени
+    void onRealtimeTimer();        // Таймер опроса
+    void updateRealtimeProgress(); // Обновление обратного отсчёта
+    void startRealtimeMode();      // Запуск режима реального времени
+	
 private:
     Ui::MainWindow *ui;
     // Таймер для режима реального времени
+    QTimer *realtimeTimer;      // Таймер для опроса в реальном времени
     QTimer *timer;
     QTimer *progressTimer;
-    // Флаг работы в реальном времени
-    bool isRealtimeMode;
 
-    // Флаг остановки процесса
+    // Флаги
     bool stopRequested;
     bool isProcessing;
+    bool isRealtimeMode; // Флаг работы в реальном времени
+    bool isRealtimeProcessing;  // Флаг, что сейчас выполняется обработка в реальном времени
 	
 	// Данные для прогресса
     int totalFiles;
     int currentFileIndex;
     int remainingSeconds;
+    int totalRealtimeSeconds;   // Общее количество секунд между опросами
     
     // Рабочий поток
     QThread *workerThread;
@@ -85,6 +91,7 @@ private:
     bool currentAutoRename;
 
     void lockControls(bool locked);
+	void startProcessing();      // Запуск обработки (общий метод)
     void cleanupThread();
 };
 #endif // MAINWINDOW_H

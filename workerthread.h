@@ -52,7 +52,7 @@ private:
     bool m_stopRequested;
 
     // Вспомогательные методы
-    QByteArray hexStringToByteArray(QString &hexString);
+    // QByteArray hexStringToByteArray(QString &hexString);
     bool processFile(const QString &inputFilePath,
                      const QString &outputFilePath,
                      qint64 &processedBytes);

@@ -19,9 +19,12 @@ void MainWindow::on_radioButton_4_toggled(bool checked)
         ui->label_8->setVisible(false);
         ui->timeEdit->setVisible(false);
 
-        // Останавливаем таймер, если он был запущен
-        if (timer->isActive()) {
-            timer->stop();
+        // Останавливаем таймеры
+        if (realtimeTimer && realtimeTimer->isActive()) {
+            realtimeTimer->stop();
+        }
+        if (progressTimer && progressTimer->isActive()) {
+            progressTimer->stop();
         }
     }
 }

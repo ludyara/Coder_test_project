@@ -10,6 +10,12 @@
 #include <QRegularExpression>
 #include <QMessageBox>
 
+struct ResumeInfo
+{
+    QString outputFilePath;
+    qint64 position;
+};
+
 class WorkerThread : public QObject
 {
     Q_OBJECT
@@ -25,12 +31,12 @@ public:
                        bool deleteSource,
                        bool overwriteExisting,
                        bool autoRename,
-                       const QMap<QString, qint64> &pausedFiles);
+                       const QMap<QString, ResumeInfo> &pausedFiles);
 
 public slots:
     void process();  // Основная функция обработки
     void stop();     // Остановка обработки
-    QMap<QString, qint64> getPausedFiles() const { return m_pausedFiles; }
+    QMap<QString, ResumeInfo> getPausedFiles() const { return m_pausedFiles; }
 
 signals:
     void progressUpdated(int current, int total, int percent);      // Прогресс (количество файлов и определённый файл)
@@ -47,7 +53,8 @@ private:
     bool m_deleteSource;
     bool m_overwriteExisting;
     bool m_autoRename;
-    QMap<QString, qint64> m_pausedFiles;
+    QMap<QString, ResumeInfo> m_pausedFiles;
+    QMap<QString, bool> m_isNewFile; // флаг создан ли файл
 
     bool m_stopRequested;
 

@@ -305,12 +305,36 @@ void MainWindow::onProcessingFinished(int processedCount, int errorCount, const 
         pausedFiles = worker->getPausedFiles();
     }
 
-    ui->label_status->setText("Обработка завершена");
-    ui->label_status_2->setText("Обработано: " + QString::number(processedCount) + 
-                                " файлов" + (errorCount > 0 ?
-                                " (ошибок: " + QString::number(errorCount) + ")" +
-                                "\nОшибки при обработке:\n" + errors.join("\n") : "")
-                                );
+
+
+
+    // Если есть прерванные файлы, показываем это в статусе
+    if (!pausedFiles.isEmpty()) {
+        ui->label_status->setText("Обработка прервана. " +
+                                  QString::number(pausedFiles.size()) +
+                                  " файлов ожидают возобновления.");
+
+        // Показываем список прерванных файлов
+        QStringList fileNames;
+        for (auto it = pausedFiles.begin(); it != pausedFiles.end(); ++it) {
+            QFileInfo fileInfo(it.key());
+            fileNames << fileInfo.fileName() + " (" + QString::number(it.value().position) + " байт)";
+        }
+        ui->label_status_2->setText("Прерваны: " + fileNames.join(", "));
+    } else {
+        if (errorCount == 0) {
+            ui->label_status->setText("Обработка завершена успешно");
+        } else {
+            ui->label_status->setText("Обработка завершена с ошибками");
+        }
+        ui->label_status_2->setText("Обработано: " + QString::number(processedCount) +
+                                    " файлов" + (errorCount > 0 ?
+                                                     " (ошибок: " + QString::number(errorCount) + ")" +
+                                                         "\nОшибки при обработке:\n" + errors.join("\n") : "")
+                                    );
+    }
+
+
     ui->progressBar->setValue(100);
 
     // Если ошибок нет или все файлы обработаны, очищаем pausedFiles

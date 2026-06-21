@@ -15,7 +15,7 @@ void WorkerThread::setParameters(const QString &inputPath,
                                  bool deleteSource,
                                  bool overwriteExisting,
                                  bool autoRename,
-                                 const QMap<QString, qint64> &pausedFiles)
+                                 const QMap<QString, ResumeInfo> &pausedFiles)
 {
     m_inputPath = inputPath;
     m_outputPath = outputPath;
@@ -57,21 +57,27 @@ void WorkerThread::process()
 
             const QString &fileName = files[i];
             QString inputFilePath = inputDir.filePath(fileName);
-            QString outputFilePath = outputDir.filePath(fileName);
+            QString outputFilePath;// = outputDir.filePath(fileName);
 
             emit statusUpdated("Обработка файла: " + fileName);
 
-
             // Проверяем, есть ли файл в списке прерванных
             qint64 resumePosition = 0;
+            // if (m_pausedFiles.contains(inputFilePath)) {
+            //     resumePosition = m_pausedFiles[inputFilePath];
+            //     emit statusUpdated("Возобновление файла: " + fileName +
+            //                        " с позиции " + QString::number(resumePosition));
+            // }
             if (m_pausedFiles.contains(inputFilePath)) {
-                resumePosition = m_pausedFiles[inputFilePath];
+                outputFilePath = m_pausedFiles[inputFilePath].outputFilePath;
+                resumePosition = m_pausedFiles[inputFilePath].position;
                 emit statusUpdated("Возобновление файла: " + fileName +
                                    " с позиции " + QString::number(resumePosition));
             }
-
-            // Разрешаем конфликт имён
-            outputFilePath = resolveFileName(fileName, outputDir);
+            else
+            {
+                outputFilePath = resolveFileName(fileName, outputDir);
+            }
 
             // Обрабатываем файл
             qint64 processedBytes = 0;
@@ -93,10 +99,9 @@ void WorkerThread::process()
                 }
             }
 
-            processedCount++;
-
             // Удаляем из списка прерванных
-            if (m_pausedFiles.contains(inputFilePath)) {
+            if (success) {
+                processedCount++;
                 m_pausedFiles.remove(inputFilePath);
             }
         }
@@ -126,40 +131,100 @@ bool WorkerThread::processFile(const QString &inputFilePath,
         return false;
     }
 
+    bool isResume = m_pausedFiles.contains(inputFilePath);
+    qint64 resumePos = 0;
+    
     QFile outputFile(outputFilePath);
-    if (!outputFile.open(QIODevice::WriteOnly)) {
-        inputFile.close();
-        emit errorOccurred("Не удалось создать файл: " + outputFilePath);
-        return false;
-    }
 
-    qint64 fileSize = inputFile.size();
-    processedBytes = 0;
-
-    // Если есть сохранённая позиция, восстанавливаем
-    if (m_pausedFiles.contains(inputFilePath)) {
-        qint64 resumePos = m_pausedFiles[inputFilePath];
+	// Определяем нужно ли зоздавать новый файл
+    if (isResume) { 
+        resumePos = m_pausedFiles[inputFilePath].position; // m_pausedFiles[inputFilePath];
+        // ----- добавлено 210626 1612
+        if (!inputFile.seek(resumePos))
+        {
+            inputFile.close();
+            outputFile.close();
+            return false;
+        }
+        // if (resumePos > 0)
+        // {
+        //     inputFile.seek(resumePos);
+        //     if (!outputFile.seek(resumePos)) {
+        //         return false;
+        //     }
+        //     processedBytes = resumePos;
+        // }
+        // -----
+        qint64 fileSize = inputFile.size();
+        
         // Проверяем, что позиция валидна
-        if (resumePos < fileSize) {
-            // Перемещаем указатели на сохранённую позицию
-            inputFile.seek(resumePos);
-            outputFile.seek(resumePos);
-            processedBytes = resumePos;
-
-            emit statusUpdated("Возобновлено с байта " + QString::number(resumePos) +
-                               " (" + QString::number((resumePos * 100) / fileSize) + "%)");
+        if (resumePos >= fileSize) {
+            // Файл уже полностью обработан, начинаем с начала
+            isResume = false;
+            resumePos = 0;
+            emit statusUpdated("Файл уже обработан. Начинаем с начала.");
         } else {
-            // Если позиция больше размера файла, начинаем с начала
-            emit statusUpdated("Позиция возобновления больше размера файла. Начинаем с начала.");
+            // Открываем СУЩЕСТВУЮЩИЙ файл для дозаписи
+            if (!outputFile.exists(outputFilePath)) {
+                // Если файла нет, создаём новый
+                isResume = false;
+                resumePos = 0;
+                emit statusUpdated("Файл не найден. Создаём новый.");
+            } else {
+                // Открываем существующий файл в режиме ReadWrite
+                if (!outputFile.open(QIODevice::ReadWrite)) {
+                    emit errorOccurred("Не удалось открыть существующий файл: " + outputFilePath);
+                    inputFile.close();
+                    return false;
+                }
+                
+                // Перемещаем указатель на позицию возобновления
+                if (!outputFile.seek(resumePos)) {
+                    emit errorOccurred("Не удалось переместить указатель в файле: " + outputFilePath);
+                    inputFile.close();
+                    outputFile.close();
+                    return false;
+                }
+                
+                processedBytes = resumePos;
+                emit statusUpdated("Возобновление с байта " + QString::number(resumePos) + 
+                                  " (" + QString::number((resumePos * 100) / fileSize) + "%)");
+            }
         }
     }
+	else { // Если не возобновление, то создаём новый файл
+        // QFile outputFile(outputFilePath);
+        if (!outputFile.open(QIODevice::WriteOnly)) {
+            inputFile.close();
+            emit errorOccurred("Не удалось создать файл: " + outputFilePath);
+            return false;
+        }
+    }
+    qint64 fileSize = inputFile.size();
+
+    // processedBytes = 0;
+
+    // // Если есть сохранённая позиция, восстанавливаем
+    // if (m_pausedFiles.contains(inputFilePath)) {
+    //     qint64 resumePos = m_pausedFiles[inputFilePath];
+    //     if (resumePos < fileSize) {
+    //         inputFile.seek(resumePos);
+    //         outputFile.seek(resumePos);
+    //         processedBytes = resumePos;
+    //         emit statusUpdated("Возобновлено с байта " + QString::number(resumePos));
+    //     }
 
     while (true) {
         // Проверяем остановку
         if (m_stopRequested) {
             // Сохраняем позицию для возобновления
             qint64 currentPos = inputFile.pos();
-            m_pausedFiles[inputFilePath] = currentPos;
+            // m_pausedFiles[inputFilePath] = currentPos;
+            ResumeInfo info;
+            info.outputFilePath = outputFilePath;
+            info.position = currentPos;
+            m_pausedFiles[inputFilePath] = info;
+
             emit statusUpdated("Остановка на байте " + QString::number(currentPos));
             inputFile.close();
             outputFile.close();
@@ -203,6 +268,11 @@ bool WorkerThread::processFile(const QString &inputFilePath,
 
     inputFile.close();
     outputFile.close();
+    
+    // Удаляем из списка прерванных
+    if (m_pausedFiles.contains(inputFilePath)) {
+        m_pausedFiles.remove(inputFilePath);
+    }					
     return true;
 }
 
@@ -211,6 +281,21 @@ QString WorkerThread::resolveFileName(const QString &fileName, const QDir &outpu
     QString outputFilePath = outputDir.filePath(fileName);
     QFile outputFile(outputFilePath);
 
+    // Если файл есть в списке прерванных, используем его
+    QString inputFilePath = QDir(m_inputPath).filePath(fileName);
+    if (m_pausedFiles.contains(inputFilePath)) {
+        // Это файл, который нужно возобновить
+        if (outputFile.exists()) {
+            // Возвращаем существующий файл
+            return outputFilePath;
+        } else {
+            // Файл был удалён, создаём новый
+            // Но помечаем, что это не возобновление
+            m_pausedFiles.remove(inputFilePath);
+        }
+    }
+
+    // Если файл не существует или разрешена перезапись
     if (!outputFile.exists() || m_overwriteExisting) {
         return outputFilePath;
     }

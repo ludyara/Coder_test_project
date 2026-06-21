@@ -80,7 +80,7 @@ private:
     WorkerThread *worker;
     // Хранилище для информации о прерванных файлах
     // Ключ: путь к файлу, Значение: смещение (позиция) для возобновления
-    QMap<QString, qint64> pausedFiles;
+    QMap<QString, ResumeInfo> pausedFiles;
 
     // Текущая обрабатываемая директория (для возобновления)
     QString currentInputPath;

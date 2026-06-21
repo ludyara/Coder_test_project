@@ -9,12 +9,6 @@ MainWindow::MainWindow(QWidget *parent)
     , totalRealtimeSeconds(5)
 {
     ui->setupUi(this);
-    // connect(ui->pushButton_start, &QPushButton::clicked,
-    //         this, &MainWindow::on_pushButton_start_clicked);
-
-    // Инициализация флагов
-    isRealtimeMode = false;
-    stopRequested = false;
 
     // По умолчанию скрываем элементы для режима реального времени
     ui->label_8->setVisible(false);
@@ -57,7 +51,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Инициализация рабочего потока
     workerThread = nullptr;
     worker = nullptr;
-    
+
     // Потом надо будет удалить (Инициализация переменных)
     ui->lineEdit->setText("test.txt");
     ui->lineEdit_2->setText("D:\\Projects\\Qt\\test\\Temp\\in");
@@ -69,7 +63,7 @@ MainWindow::~MainWindow()
 {
 	cleanupThread();
     // Останавливаем таймеры
-    if (timer->isActive()) timer->stop();
+    // if (timer->isActive()) timer->stop();
     if (progressTimer->isActive()) progressTimer->stop();
 
     delete ui;
@@ -193,17 +187,21 @@ void MainWindow::on_pushButton_start_clicked() {
         int seconds = time.hour() * 3600 + time.minute() * 60 + time.second();
         if (seconds < 1) seconds = 1; // Минимум 1 секунда
 
-        timer->start(seconds * 1000); // QTimer работает в миллисекундах
+        // timer->start(seconds * 1000); // QTimer работает в миллисекундах
+        realtimeTimer->start(seconds * 1000);
 
         // Запускаем таймер прогресса
         remainingSeconds = seconds;
         progressTimer->start(1000);
 
+        // Режим реального времени
+        startRealtimeMode();
+
     //     // Первый запуск сразу
     //     processRealtime();
-    // } else {
-    //     // Разовый режим
-    //     processFiles();
+    } else {
+        // Разовый режим
+        startProcessing();
     }
 }
 
@@ -225,33 +223,14 @@ void MainWindow::on_pushButton_stop_clicked()
     // Останавливаем рабочий поток
     if (worker) {
         worker->stop();
+        QThread::msleep(200);  // Даём время на завершение
     }
 
     // Разблокируем остальные элементы управления
     lockControls(false);
 
     ui->label_status->setText("Остановлено пользователем");
-
-    // QMessageBox::information(this, "Остановка",
-                             // "Процесс остановлен.\n"
-                             // "Нажмите 'Запуск' для возобновления обработки.");
     ui->progressBar->setValue(0);
-    // Не разблокируем сразу, дадим время на остановку
-    QTimer::singleShot(1000, this, [this]() {
-        if (!isProcessing) {
-            lockControls(false);
-        }
-    });
-}
-
-void MainWindow::onProgressUpdated(int current, int total)
-{
-    currentFileIndex = current;
-    totalFiles = total;
-    ui->progressBar->setMaximum(total);
-    ui->progressBar->setValue(current);
-    ui->label_status_2->setText("Файл " + QString::number(current) + 
-                                " из " + QString::number(total));
 }
 
 void MainWindow::onStatusUpdated(const QString &status)
@@ -303,27 +282,44 @@ void MainWindow::lockControls(bool locked)
     ui->pushButton_start->setDisabled(locked);
 }
 
-void MainWindow::onFileProgressUpdated(int percent)
+void MainWindow::onProgressUpdated(int current, int total, int percent)
 {
-    // Если не в реальном времени, показываем прогресс файла
-    if (!isRealtimeMode) {
-        // Можно добавить дополнительный индикатор или просто обновлять статус
-    }
+    ui->label_status->setText("Файл " + QString::number(current) +
+                                " из " + QString::number(total));
+    ui->progressBar->setRange(0, 100);
+    int progress;
+    if (total > 0) progress = (current  * 100 + percent) / total;
+    else progress = 0;
+
+    ui->progressBar->setValue(progress);
+
+
 }
 
 void MainWindow::onProcessingFinished(int processedCount, int errorCount, const QStringList &errors)
 {
     isProcessing = false;
-    
+
+    // Получаем обновлённый список прерванных файлов из потока
+    if (worker) {
+        pausedFiles = worker->getPausedFiles();
+    }
+
     ui->label_status->setText("Обработка завершена");
     ui->label_status_2->setText("Обработано: " + QString::number(processedCount) + 
-                               " файлов" + (errorCount > 0 ? 
-                               " (ошибок: " + QString::number(errorCount) + ")" : ""));
-    ui->progressBar->setValue(processedCount);
-    
-    if (!errors.isEmpty()) {
-        QMessageBox::warning(this, "Ошибки", 
-                            "Ошибки при обработке:\n" + errors.join("\n"));
+                                " файлов" + (errorCount > 0 ?
+                                " (ошибок: " + QString::number(errorCount) + ")" +
+                                "\nОшибки при обработке:\n" + errors.join("\n") : "")
+                                );
+    ui->progressBar->setValue(100);
+
+    // Если ошибок нет или все файлы обработаны, очищаем pausedFiles
+    if (processedCount > 0 && errors.isEmpty()) {
+        // Проверяем, остались ли файлы в pausedFiles
+        if (pausedFiles.isEmpty()) {
+            ui->label_status->setText("Все файлы обработаны успешно");
+            pausedFiles.clear();
+        }
     }
     
     lockControls(false);
@@ -336,21 +332,15 @@ void MainWindow::onProcessingFinished(int processedCount, int errorCount, const 
         remainingSeconds = seconds;
         totalRealtimeSeconds = seconds;
         progressTimer->start(1000);
-        ui->label_status->setText("Ожидание следующего опроса: " + 
-                                 QString::number(seconds) + " сек.");
-    }
-	    // Разблокируем элементы управления, если не в реальном времени
-    if (!isRealtimeMode) {
-        lockControls(false);
-	} else {
-        // В реальном времени блокируем только кнопку запуска
-        ui->pushButton_start->setDisabled(false);
+        // ui->label_status->setText("Ожидание следующего опроса: " +
+        //                          QString::number(seconds) + " сек.");
     }
 }
 
 void MainWindow::onErrorOccurred(const QString &error)
 {
-    QMessageBox::critical(this, "Ошибка", error);
+    // QMessageBox::critical(this, "Ошибка", error);
+    ui->label_status_2->setText("Ошибка: " + error);
     isProcessing = false;
     lockControls(false);
 }

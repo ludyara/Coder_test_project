@@ -74,6 +74,8 @@ CMakeLists.txt.user*
 *.dll
 *.exe
 
+ТЗ.txt
+
 # Directories with generated files
 .moc/
 .obj/
@@ -82,3 +84,7 @@ CMakeLists.txt.user*
 .uic/
 /build*/
 /.qtcreator/
+
+# Directories with temporary files and old projects
+/Temp*/
+/_old*/

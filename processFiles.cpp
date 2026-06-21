@@ -68,7 +68,6 @@ void MainWindow::startProcessing()
 
     connect(worker, &WorkerThread::progressUpdated, this, &MainWindow::onProgressUpdated);
     connect(worker, &WorkerThread::statusUpdated, this, &MainWindow::onStatusUpdated);
-    connect(worker, &WorkerThread::fileProgressUpdated, this, &MainWindow::onFileProgressUpdated);
     connect(worker, &WorkerThread::finished, this, &MainWindow::onProcessingFinished);
     connect(worker, &WorkerThread::errorOccurred, this, &MainWindow::onErrorOccurred);
 

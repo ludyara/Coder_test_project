@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>768</width>
-    <height>742</height>
+    <width>765</width>
+    <height>817</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -471,7 +471,7 @@
       <x>50</x>
       <y>660</y>
       <width>271</width>
-      <height>21</height>
+      <height>101</height>
      </rect>
     </property>
     <property name="font">
@@ -482,6 +482,9 @@
     <property name="text">
      <string>TextLabel</string>
     </property>
+    <property name="alignment">
+     <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
+    </property>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -489,7 +492,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>768</width>
+     <width>765</width>
      <height>22</height>
     </rect>
    </property>
@@ -499,7 +502,7 @@
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="buttonGroup_2"/>
   <buttongroup name="buttonGroup"/>
+  <buttongroup name="buttonGroup_2"/>
  </buttongroups>
 </ui>

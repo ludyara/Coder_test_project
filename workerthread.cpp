@@ -43,12 +43,6 @@ void WorkerThread::process()
         // Получаем список файлов
         QStringList files = inputDir.entryList(QStringList() << m_mask, QDir::Files);
 
-        if (files.isEmpty()) {
-            emit errorOccurred("Файлы по маске '" + m_mask + "' не найдены");
-            emit finished(0, 0, QStringList());
-            return;
-        }
-
         // Инициализация прогресса
         int totalFiles = files.size();
         int processedCount = 0;
@@ -66,7 +60,7 @@ void WorkerThread::process()
             QString outputFilePath = outputDir.filePath(fileName);
 
             emit statusUpdated("Обработка файла: " + fileName);
-            emit progressUpdated(i + 1, totalFiles);
+
 
             // Проверяем, есть ли файл в списке прерванных
             qint64 resumePosition = 0;
@@ -81,7 +75,9 @@ void WorkerThread::process()
 
             // Обрабатываем файл
             qint64 processedBytes = 0;
-            bool success = processFile(inputFilePath, outputFilePath, processedBytes);
+            int percent = 0;
+            bool success = processFile(inputFilePath, outputFilePath,
+                                       processedBytes, percent, i, totalFiles);
 
             if (!success) {
                 errors << fileName + " (ошибка обработки)";
@@ -117,7 +113,10 @@ void WorkerThread::process()
 
 bool WorkerThread::processFile(const QString &inputFilePath,
                                const QString &outputFilePath,
-                               qint64 &processedBytes)
+                               qint64 &processedBytes,
+                               int &percent,
+                               int &current,
+                               int &total)
 {
     const qint64 CHUNK_SIZE = 1024 * 1024; // 1 MB чанк
 
@@ -140,11 +139,18 @@ bool WorkerThread::processFile(const QString &inputFilePath,
     // Если есть сохранённая позиция, восстанавливаем
     if (m_pausedFiles.contains(inputFilePath)) {
         qint64 resumePos = m_pausedFiles[inputFilePath];
+        // Проверяем, что позиция валидна
         if (resumePos < fileSize) {
+            // Перемещаем указатели на сохранённую позицию
             inputFile.seek(resumePos);
             outputFile.seek(resumePos);
             processedBytes = resumePos;
-            emit statusUpdated("Возобновлено с байта " + QString::number(resumePos));
+
+            emit statusUpdated("Возобновлено с байта " + QString::number(resumePos) +
+                               " (" + QString::number((resumePos * 100) / fileSize) + "%)");
+        } else {
+            // Если позиция больше размера файла, начинаем с начала
+            emit statusUpdated("Позиция возобновления больше размера файла. Начинаем с начала.");
         }
     }
 
@@ -189,8 +195,10 @@ bool WorkerThread::processFile(const QString &inputFilePath,
         processedBytes += chunk.size();
 
         // Обновляем прогресс обработки текущего файла
-        int percent = (processedBytes * 100) / fileSize;
-        emit fileProgressUpdated(percent);
+        percent = (processedBytes * 100) / fileSize;
+        // emit fileProgressUpdated(percent);
+
+        emit progressUpdated(current, total, percent);
     }
 
     inputFile.close();

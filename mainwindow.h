@@ -31,6 +31,8 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private slots:
     void on_pushButton_start_clicked();
@@ -42,12 +44,11 @@ private slots:
     void on_pushButton_input_clicked();
     void on_pushButton_output_clicked();
     // Слоты для обновления GUI из потока
-    void onProgressUpdated(int current, int total);
     void onStatusUpdated(const QString &status);
-    void onFileProgressUpdated(int percent);
+    void onProgressUpdated(int current, int total, int percent);
     void onProcessingFinished(int processedCount, int errorCount, const QStringList &errors);
     void onErrorOccurred(const QString &error);
-    void closeEvent(QCloseEvent *event);
+    // void closeEvent(QCloseEvent *event);
     QByteArray hexStringToByteArray(QString &hexString);
 
     // Слоты для режима реального времени
@@ -59,7 +60,7 @@ private:
     Ui::MainWindow *ui;
     // Таймер для режима реального времени
     QTimer *realtimeTimer;      // Таймер для опроса в реальном времени
-    QTimer *timer;
+    // QTimer *timer;
     QTimer *progressTimer;
 
     // Флаги

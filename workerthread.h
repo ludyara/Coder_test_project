@@ -30,11 +30,11 @@ public:
 public slots:
     void process();  // Основная функция обработки
     void stop();     // Остановка обработки
+    QMap<QString, qint64> getPausedFiles() const { return m_pausedFiles; }
 
 signals:
-    void progressUpdated(int current, int total);      // Прогресс (количество файлов)
+    void progressUpdated(int current, int total, int percent);      // Прогресс (количество файлов и определённый файл)
     void statusUpdated(const QString &status);         // Статус (имя файла, действие)
-    void fileProgressUpdated(int percent);              // Прогресс обработки текущего файла
     void finished(int processedCount, int errorCount,  // Завершено
                   const QStringList &errors);
     void errorOccurred(const QString &error);          // Ошибка
@@ -55,7 +55,10 @@ private:
     // QByteArray hexStringToByteArray(QString &hexString);
     bool processFile(const QString &inputFilePath,
                      const QString &outputFilePath,
-                     qint64 &processedBytes);
+                     qint64 &processedBytes,
+                     int &percent,
+                     int &current,
+                     int &total);
     QString resolveFileName(const QString &fileName, const QDir &outputDir);
 };
 

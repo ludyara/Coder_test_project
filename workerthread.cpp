@@ -41,7 +41,16 @@ void WorkerThread::process()
         QDir outputDir(m_outputPath);
 
         // Получаем список файлов
-        QStringList files = inputDir.entryList(QStringList() << m_mask, QDir::Files);
+        QStringList files;
+		QDirIterator it(m_inputPath, QStringList() << m_mask, 
+						QDir::Files, 
+						QDirIterator::Subdirectories);
+		while (it.hasNext()) {
+			QString filePath = it.next();
+			// Получаем относительный путь для сохранения структуры папок
+			QString relativePath = QDir(m_inputPath).relativeFilePath(filePath);
+			files << relativePath;
+        }
 
         // Инициализация прогресса
         int totalFiles = files.size();
@@ -55,28 +64,38 @@ void WorkerThread::process()
                 return;
             }
 
-            const QString &fileName = files[i];
-            QString inputFilePath = inputDir.filePath(fileName);
-            QString outputFilePath;// = outputDir.filePath(fileName);
+            const QString &relativePath = files[i];
 
-            emit statusUpdated("Обработка файла: " + fileName);
+            // Полный путь к входному файлу
+            QString inputFilePath = QDir(m_inputPath).filePath(relativePath);
+
+            // Полный путь к выходному файлу с сохранением структуры папок
+            // QString outputFilePath;// = outputDir.filePath(fileName); !!!!!!!!!!!
+            QString outputFilePath = QDir(m_outputPath).filePath(relativePath);
+
+            // Создаём необходимые подпапки в выходной директории
+            QFileInfo outputFileInfo(outputFilePath);
+            QDir outputDirPath = outputFileInfo.absoluteDir();
+            if (!outputDirPath.exists()) {
+                if (!outputDirPath.mkpath(".")) {
+                    errors << relativePath + " (не удалось создать папку)";
+                    continue;
+                }
+            }
+
+            emit statusUpdated("Обработка файла: " + relativePath);
 
             // Проверяем, есть ли файл в списке прерванных
             qint64 resumePosition = 0;
-            // if (m_pausedFiles.contains(inputFilePath)) {
-            //     resumePosition = m_pausedFiles[inputFilePath];
-            //     emit statusUpdated("Возобновление файла: " + fileName +
-            //                        " с позиции " + QString::number(resumePosition));
-            // }
             if (m_pausedFiles.contains(inputFilePath)) {
                 outputFilePath = m_pausedFiles[inputFilePath].outputFilePath;
                 resumePosition = m_pausedFiles[inputFilePath].position;
-                emit statusUpdated("Возобновление файла: " + fileName +
+                emit statusUpdated("Возобновление файла: " + relativePath +
                                    " с позиции " + QString::number(resumePosition));
             }
             else
             {
-                outputFilePath = resolveFileName(fileName, outputDir);
+                outputFilePath = resolveFileName(relativePath, outputDir);
             }
 
             // Обрабатываем файл
@@ -86,16 +105,16 @@ void WorkerThread::process()
                                        processedBytes, percent, i, totalFiles);
 
             if (!success) {
-                errors << fileName + " (ошибка обработки)";
+                errors << relativePath + " (ошибка обработки)";
                 continue;
             }
 
             // Удаляем исходный файл
             if (m_deleteSource) {
-                emit statusUpdated("Удаление исходного файла: " + fileName);
+                emit statusUpdated("Удаление исходного файла: " + relativePath);
                 QFile inputFile(inputFilePath);
                 if (!inputFile.remove()) {
-                    errors << fileName + " (не удалось удалить)";
+                    errors << relativePath + " (не удалось удалить)";
                 }
             }
 
@@ -276,13 +295,14 @@ bool WorkerThread::processFile(const QString &inputFilePath,
     return true;
 }
 
-QString WorkerThread::resolveFileName(const QString &fileName, const QDir &outputDir)
+QString WorkerThread::resolveFileName(const QString &relativePath, const QDir &outputPath)
 {
-    QString outputFilePath = outputDir.filePath(fileName);
+    // Полный путь к файлу в выходной директории
+    QString outputFilePath = QDir(outputPath).filePath(relativePath);
     QFile outputFile(outputFilePath);
 
     // Если файл есть в списке прерванных, используем его
-    QString inputFilePath = QDir(m_inputPath).filePath(fileName);
+    QString inputFilePath = QDir(m_inputPath).filePath(relativePath);
     if (m_pausedFiles.contains(inputFilePath)) {
         // Это файл, который нужно возобновить
         if (outputFile.exists()) {
@@ -301,23 +321,29 @@ QString WorkerThread::resolveFileName(const QString &fileName, const QDir &outpu
     }
 
     if (m_autoRename) {
-        QFileInfo fileInfo(fileName);
+        QFileInfo fileInfo(relativePath);
         QString baseName = fileInfo.baseName();
         QString suffix = fileInfo.suffix();
-        QString newFileName;
+        QString path = fileInfo.path();
+        QString newRelativePath;
         int counter = 2;
 
         do {
-            newFileName = baseName + "_" + QString::number(counter);
+            QString newFileName = baseName + "_" + QString::number(counter);
             if (!suffix.isEmpty()) {
                 newFileName += "." + suffix;
             }
-            outputFilePath = outputDir.filePath(newFileName);
+            if (path != ".") {
+                newRelativePath = path + "/" + newFileName;
+            } else {
+                newRelativePath = newFileName;
+            }
+            outputFilePath = QDir(outputPath).filePath(newRelativePath);
             outputFile.setFileName(outputFilePath);
             counter++;
         } while (outputFile.exists());
 
-        emit statusUpdated("Файл переименован в: " + newFileName);
+        emit statusUpdated("Файл переименован в: " + newRelativePath);
         return outputFilePath;
     }
 

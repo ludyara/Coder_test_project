@@ -9,6 +9,7 @@
 #include <QMap>
 #include <QRegularExpression>
 #include <QMessageBox>
+#include <QDirIterator>
 
 struct ResumeInfo
 {

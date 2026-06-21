@@ -285,7 +285,7 @@
      </font>
     </property>
     <property name="text">
-     <string>Действия при повторении имени выходного файла</string>
+     <string>Действия при повторении имени выходного файла:</string>
     </property>
    </widget>
    <widget class="QRadioButton" name="radioButton_2">
@@ -324,7 +324,7 @@
      </font>
     </property>
     <property name="text">
-     <string>Режим работы</string>
+     <string>Режим работы:</string>
     </property>
    </widget>
    <widget class="QRadioButton" name="radioButton_3">
@@ -502,7 +502,7 @@
  <resources/>
  <connections/>
  <buttongroups>
-  <buttongroup name="buttonGroup"/>
   <buttongroup name="buttonGroup_2"/>
+  <buttongroup name="buttonGroup"/>
  </buttongroups>
 </ui>

@@ -53,10 +53,10 @@ MainWindow::MainWindow(QWidget *parent)
     worker = nullptr;
 
     // Потом надо будет удалить (Инициализация переменных)
-    ui->lineEdit->setText("test.txt");
-    ui->lineEdit_2->setText("D:\\Projects\\Qt\\test\\Temp\\in");
-    ui->lineEdit_3->setText("D:\\Projects\\Qt\\test\\Temp\\out");
-    ui->lineEdit_5->setText("0000000000000001");
+    // ui->lineEdit->setText("test.txt");
+    // ui->lineEdit_2->setText("D:\\Projects\\Qt\\test\\Temp\\in");
+    // ui->lineEdit_3->setText("D:\\Projects\\Qt\\test\\Temp\\out");
+    ui->lineEdit_5->setText("0000000000000000");
 }
 
 MainWindow::~MainWindow()
